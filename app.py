@@ -43,12 +43,18 @@ if "last_submission_hash" not in st.session_state:
     st.session_state.last_submission_hash = None
 if "user_language_style" not in st.session_state:
     st.session_state.user_language_style = None
+if "user_input" not in st.session_state:
+    st.session_state.user_input = ""
+if "preferred_language" not in st.session_state:
+    # default preference: Benglish (user asked default to be Benglish)
+    st.session_state.preferred_language = "Benglish"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  UTILITY FUNCTIONS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 URL_PATTERN = re.compile(r'(https?://[^\s<>"\'\\)]+)', flags=re.IGNORECASE)
+
 
 def is_safe_url(url: str) -> bool:
     try:
@@ -57,11 +63,13 @@ def is_safe_url(url: str) -> bool:
     except:
         return False
 
+
 def sanitize_html(text: Any) -> str:
     if text is None:
         return ""
     s = str(text)
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
 
 def linkify_urls(text: str) -> str:
     def replace_url(match):
@@ -70,18 +78,22 @@ def linkify_urls(text: str) -> str:
             safe_url = url.replace('"', "%22")
             return f'<a href="{safe_url}" target="_blank" rel="noopener noreferrer" class="source-link">{safe_url}</a>'
         return url
+
     return URL_PATTERN.sub(replace_url, text)
 
+
 def detect_language_style(text: str) -> str:
-    """Detect if text is in Benglish or other code-mixed styles"""
+    """Detect if text is code-mixed (Benglish/Hinglish), native, or english"""
+    if not text:
+        return "english"
     has_english = bool(re.search(r'[a-zA-Z]', text))
     has_non_ascii = bool(re.search(r'[^\x00-\x7F]', text))
-    
     if has_english and has_non_ascii:
         return "code-mixed"
-    elif has_non_ascii:
+    elif has_non_ascii and not has_english:
         return "native"
     return "english"
+
 
 def extract_text_from_response(response: Any) -> str:
     if response is None:
@@ -99,27 +111,64 @@ def extract_text_from_response(response: Any) -> str:
                     parts.append(choice.get("text") or choice.get("message", {}).get("content", "") or "")
             if parts:
                 return " ".join(parts).strip()
-        return json.dumps(response, indent=2)
+        # fallback: pretty-print json
+        try:
+            return json.dumps(response, indent=2)
+        except:
+            return str(response)
     try:
         return str(response)
     except:
         return "[Unable to display response]"
 
+
 def extract_sources(response: Any) -> list:
     if not isinstance(response, dict):
         return []
     sources = []
-    for key in ("source", "sources", "references", "urls"):
+    for key in ("source", "sources", "references", "urls", "links"):
         if key in response:
             value = response[key]
             if isinstance(value, str) and is_safe_url(value):
                 sources.append(value)
             elif isinstance(value, (list, tuple)):
                 sources.extend([s for s in value if isinstance(s, str) and is_safe_url(s)])
-    return sources
+    # Normalize and unique
+    out = []
+    seen = set()
+    for s in sources:
+        if s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out
+
+
+def make_anchor_prefix(text_raw: str = "") -> str:
+    """Create a short stable hash suffix for anchors / ids."""
+    if text_raw is None:
+        text_raw = ""
+    try:
+        _hash_digest = hashlib.sha1(text_raw.encode()).hexdigest()[:8]
+    except Exception:
+        _hash_digest = uuid.uuid4().hex[:8]
+    return _hash_digest
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  CUSTOM CSS - CARBON BLACK DARK THEME
+#  INSTRUCTION PROMPT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+instruction = """You are LocGenAI — a regional knowledge assistant.
+- Mirror the user's language style (if they use code-mixed/Benglish, reply in the same style).
+- Match the user's emotional tone (empathetic, formal, casual) where appropriate.
+- Provide clear, concise answers with helpful local examples or analogies.
+- When relevant, include 1-3 trusted source links (government or authoritative pages) with brief labels.
+- Do NOT stream or output partial tokens. Return the finished answer in one reply.
+- Keep the answer accurate and, when you are uncertain, say you are uncertain and suggest where to verify.
+"""
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  CUSTOM CSS (unchanged)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 st.markdown("""
@@ -640,7 +689,7 @@ body, .stApp {
 
 .app-footer {
     text-align: center;
-    padding: 2.5rem 1rem 2rem 1rem;
+    padding: 2.5rem 1rem 2rem;
     color: var(--text-muted);
     font-size: 0.95rem;
     z-index: 2;
@@ -779,7 +828,7 @@ body, .stApp {
 
 st.markdown("""
 <div class="app-header">
-    <div class="app-title">🌏✨ LocGenAI</div>
+    <div class="app-title">🌏✨ LocGenAI-Regional Knowledge & Query Chatbot</div>
     <div class="app-subtitle">Your Regional Knowledge Companion</div>
 </div>
 """, unsafe_allow_html=True)
@@ -797,6 +846,7 @@ with col_sidebar:
         <div class="sidebar-content">
             Get answers to region-specific questions with rich cultural context. 
             I understand code-mixed queries and respond in your language style! 🌐
+            <br><br><b>Built by TechNova</b><br>HackNPitch 2025
         </div>
         <div class="sidebar-divider"></div>
         <div class="sidebar-title">🧠 Powered By</div>
@@ -817,7 +867,7 @@ with col_sidebar:
 
 with col_chat:
     st.markdown('<div class="chat-container">', unsafe_allow_html=True)
-    
+
     # Chat Header with Custom Clear Button
     st.markdown("""
     <div class="chat-header">
@@ -827,34 +877,41 @@ with col_chat:
         </div>
     </div>
     """, unsafe_allow_html=True)
-    
-    # Custom Clear Chat Button
+
+    # Custom Clear Chat Button (keeps your custom DOM hack but safe)
     header_col1, header_col2 = st.columns([5, 1])
     with header_col2:
         clear_clicked = st.button("Clear", key="clear_btn_hidden", type="secondary")
         st.markdown("""
         <script>
-        // Hide the default Streamlit button and create custom styled button
-        const buttons = window.parent.document.querySelectorAll('button[kind="secondary"]');
-        buttons.forEach(btn => {
-            if (btn.textContent.includes('Clear')) {
-                btn.style.display = 'none';
-                const customBtn = document.createElement('button');
-                customBtn.className = 'clear-chat-btn';
-                customBtn.innerHTML = '<span class="clear-icon">🗑️</span><span class="clear-text">Clear Chat</span>';
-                customBtn.onclick = () => btn.click();
-                btn.parentElement.appendChild(customBtn);
-            }
-        });
+        // If the default hidden Streamlit button exists, create a styled button next to it.
+        (function(){
+            try {
+                const buttons = window.parent.document.querySelectorAll('button[kind="secondary"]');
+                buttons.forEach(btn => {
+                    if (btn.textContent.includes('Clear')) {
+                        // avoid adding duplicates
+                        if (btn.parentElement.querySelector('.clear-chat-btn')) return;
+                        const customBtn = document.createElement('button');
+                        customBtn.className = 'clear-chat-btn';
+                        customBtn.innerHTML = '<span class="clear-icon">🗑️</span><span class="clear-text">Clear Chat</span>';
+                        customBtn.onclick = () => btn.click();
+                        btn.parentElement.appendChild(customBtn);
+                        btn.style.display = 'none';
+                    }
+                });
+            } catch (e) { /* ignore cross-origin if any */ }
+        })();
         </script>
         """, unsafe_allow_html=True)
-        
+
         if clear_clicked:
             st.session_state.messages = []
             st.session_state.last_submission_hash = None
             st.session_state.user_language_style = None
-            st.rerun()
-    
+            # clear preferred language? keep as is so user choice persists
+            st.session_state.user_input = ""
+
     # Model Warning
     if not MODEL_OK:
         st.markdown(f"""
@@ -865,11 +922,30 @@ with col_chat:
             <br><small><b>Technical Details:</b> {sanitize_html(MODEL_ERROR)}</small>
         </div>
         """, unsafe_allow_html=True)
-    
+
+    # Language selector prompt (automatic when opening). The user requested default Benglish.
+    # If preferred_language exists, show it; otherwise prompt user to choose.
+    lang_display = st.session_state.get("preferred_language", None)
+    if not lang_display:
+        # show inline chooser
+        chosen = st.selectbox("Choose interface language", ["Benglish", "Hinglish", "English"], index=0)
+        if st.button("Set language"):
+            st.session_state.preferred_language = chosen
+            st.experimental_rerun()
+    else:
+        # small top hint of chosen language with option to change
+        st.markdown(f"<div style='padding:0.4rem 0 0.6rem 0; color: #cfcfcf; font-size:0.95rem;'>Chat language: <b>{sanitize_html(lang_display)}</b> · <a id='change-lang' href='#' style='color:#00D9FF;'>Change</a></div>", unsafe_allow_html=True)
+        # we can't attach a native click handler easily, so provide a simple selectbox to change
+        with st.expander("Change chat language", expanded=False):
+            new_lang = st.selectbox("Choose", ["Benglish", "Hinglish", "English"], index=["Benglish","Hinglish","English"].index(lang_display) if lang_display in ["Benglish","Hinglish","English"] else 0)
+            if st.button("Apply language"):
+                st.session_state.preferred_language = new_lang
+                st.experimental_rerun()
+
     # Chat Window
     st.markdown('<div class="chat-window" id="chatWindow">', unsafe_allow_html=True)
     st.markdown('<div class="message-list">', unsafe_allow_html=True)
-    
+
     if len(st.session_state.messages) == 0:
         st.markdown("""
         <div class="empty-state">
@@ -878,17 +954,17 @@ with col_chat:
             <div class="empty-subtext">Ask me anything about your region, culture, or local knowledge!</div>
         </div>
         """, unsafe_allow_html=True)
-    
+
     for idx, msg in enumerate(st.session_state.messages):
         role = msg.get("role", "user")
         content = msg.get("content", "")
         meta = msg.get("meta", {})
         msg_id = msg.get("id", f"msg-{idx}")
-        
+
         safe_content = sanitize_html(content).replace("\n", "<br>")
         safe_content = linkify_urls(safe_content)
         anchor_id = f"bubble-{msg_id}"
-        
+
         if role == "user":
             st.markdown(f"""
             <div class="message-wrapper user" id="{anchor_id}">
@@ -899,35 +975,44 @@ with col_chat:
             </div>
             """, unsafe_allow_html=True)
         else:
+            # message meta (copy button + sources)
             meta_html = '<div class="message-meta">'
+            # copy button (uses JS and will attempt to copy the bubble content)
             meta_html += f'''
             <button class="copy-button" onclick="
-                const wrapper = document.getElementById('{anchor_id}');
-                const content = wrapper.querySelector('.message-content');
-                const role = content.querySelector('.message-role');
-                const meta = content.querySelector('.message-meta');
-                let text = content.innerText;
-                if (role) text = text.replace(role.innerText, '');
-                if (meta) text = text.replace(meta.innerText, '');
-                text = text.trim();
-                navigator.clipboard.writeText(text).then(() => {{
-                    this.textContent = '✓ Copied';
-                    setTimeout(() => {{ this.textContent = 'Copy'; }}, 2000);
-                }});
+                (function() {{
+                    try {{
+                        const wrapper = document.getElementById('{anchor_id}');
+                        if (!wrapper) return;
+                        const contentNode = wrapper.querySelector('.message-content');
+                        if (!contentNode) return;
+                        // prepare text to copy (strip role header)
+                        let text = contentNode.innerText || contentNode.textContent || '';
+                        // remove role label 'LOCGENAI' or 'You'
+                        text = text.replace(/^\\s*LocGenAI\\s*/, '');
+                        text = text.replace(/^\\s*You\\s*/, '');
+                        text = text.trim();
+                        navigator.clipboard.writeText(text).then(() => {{
+                            alert('Copied to clipboard');
+                        }});
+                    }} catch(e) {{
+                        console.error(e);
+                    }}
+                }})();
             ">Copy</button>
             '''
-            
+
             sources = extract_sources(meta)
             if sources:
                 meta_html += '<span>•</span><span><b>Sources:</b> '
                 source_links = []
-                for src in sources[:3]:
+                for si, src in enumerate(sources[:3], start=1):
                     safe_src = src.replace('"', "%22")
-                    source_links.append(f'<a href="{safe_src}" target="_blank" class="source-link">Link {len(source_links)+1}</a>')
+                    source_links.append(f'<a href="{safe_src}" target="_blank" class="source-link">Link {si}</a>')
                 meta_html += ", ".join(source_links)
                 meta_html += '</span>'
             meta_html += '</div>'
-            
+
             st.markdown(f"""
             <div class="message-wrapper assistant" id="{anchor_id}">
                 <div class="message-content">
@@ -937,122 +1022,83 @@ with col_chat:
                 </div>
             </div>
             """, unsafe_allow_html=True)
-    
+
     st.markdown('</div></div>', unsafe_allow_html=True)
-    
-    # Input Area with Form
+
+    # --------------------------
+    # INPUT (text_area + button) - replaced the st.form approach to avoid lag
+    # --------------------------
+
     st.markdown('<div class="input-container">', unsafe_allow_html=True)
-    
-    with st.form("msg_form", clear_on_submit=True):
-        user_input = st.text_area(
-            label="Message",
-            placeholder="Type your message here... I understand any language! 🌍",
-            key="user_input",
-            height=80,
-            label_visibility="collapsed"
-        )
-        submit_btn = st.form_submit_button("Send", type="primary")
-    
-    if submit_btn and user_input.strip():
-        submission_hash = hashlib.sha1((user_input + str(len(st.session_state.messages))).encode()).hexdigest()
-        
+
+    # keep the same look/placeholder and key as before
+    user_input_text = st.text_area(
+        label="Message",
+        placeholder="Type your message here... I understand any language! 🌍",
+        key="user_input",
+        height=80,
+        label_visibility="collapsed"
+    )
+
+    send_clicked = st.button("Send", key="send_button")
+
+    # If send is clicked, process immediately — append user message first so it shows in the same run
+    if send_clicked and user_input_text and user_input_text.strip():
+        text = user_input_text.strip()
+        submission_hash = hashlib.sha1((text + str(len(st.session_state.messages))).encode()).hexdigest()
         if submission_hash != st.session_state.last_submission_hash:
             st.session_state.last_submission_hash = submission_hash
-            
-            # Detect user's language style
-            detected_style = detect_language_style(user_input.strip())
-            if detected_style:
-                st.session_state.user_language_style = detected_style
-            
+
+            # detect user's language style from input and store
+            detected_style = detect_language_style(text)
+            st.session_state.user_language_style = detected_style
+
+            # Immediately append user message (so it renders right away)
             st.session_state.messages.append({
                 "id": str(uuid.uuid4()),
                 "role": "user",
-                "content": user_input.strip(),
+                "content": text,
                 "meta": {}
             })
-            
+
+            # Build prompt factoring in user's explicit preferred language (persisted) and detected style
+            preferred = st.session_state.get("preferred_language", "Benglish")
+            style_note = ""
+            # Map chosen preference to style hint
+            if preferred == "Benglish":
+                style_note = "[Respond in Benglish / code-mixed style matching the user preference and tone.] "
+            elif preferred == "Hinglish":
+                style_note = "[Respond in Hinglish / code-mixed style matching the user preference and tone.] "
+            elif preferred == "English":
+                style_note = "[Respond in English.] "
+
+            # Also add a hint to mirror input if detection suggests code-mixed/native explicitly
+            if detected_style == "code-mixed":
+                style_note = "[Reply in the same code-mixed language style (Benglish/Hinglish) as the user.] " + style_note
+            elif detected_style == "native":
+                style_note = "[Reply in the same native language/style as the user.] " + style_note
+
+            # final prompt
+            prompt = f"{instruction}\n{style_note}\nUser: {text}\n\nAnswer:"
+
+            # Call model
             if MODEL_OK:
                 try:
-                    # ---------- New structured prompt + robust parsing ----------
-                    # detect simple emotion
-                    def detect_emotion(text):
-                        txt = text.lower()
-                        if any(w in txt for w in ["angry","mad","hate","worst","furious","annoyed"]):
-                            return "angry"
-                        if any(w in txt for w in ["sad","upset","depressed","sorry","unhappy"]):
-                            return "sad"
-                        if any(w in txt for w in ["thank","thanks","grateful","happy","awesome","great","love"]):
-                            return "positive"
-                        if any(w in txt for w in ["please","could you","would you","help me","kindly"]):
-                            return "polite"
-                        return "neutral"
-                    
-                    detected_emotion = detect_emotion(user_input.strip())
-                    detected_style = st.session_state.user_language_style or "english"
-                    
-                    instruction = f"""
-You are LocGenAI. Requirements for output:
-1) Reply in the SAME language and code-mix style as the user's message. User style: {detected_style}.
-2) Match the user's emotion/tone (be empathetic if sad/angry, be upbeat if positive, be concise if neutral). Detected emotion: {detected_emotion}.
-3) Provide a helpful, factual answer. If factual claims are made, include at least one source URL (http/https) when available.
-4) RESPONSE FORMAT: Output ONLY a valid JSON object with two keys:
-   - "answer": a string containing the full answer (may be multiline).
-   - "sources": a list of source URLs (may be empty).
-Example:
-{{"answer":"Full answer here...","sources":["https://example.com/","https://another.source/"]}}
-If you cannot provide sources, return "sources": [].
-Do NOT include any extra text outside the JSON.
-"""
-                    composed_prompt = instruction + "\nUSER_QUERY:\n" + user_input.strip()
-                    
-                    raw_response = get_response(composed_prompt)
-                    
-                    # parse model output robustly
-                    ai_text = ""
-                    sources = []
-                    if isinstance(raw_response, dict):
-                        ai_text = extract_text_from_response(raw_response)
-                        sources = extract_sources(raw_response)
-                    else:
-                        resp_str = str(raw_response).strip()
-                        parsed_json = None
-                        try:
-                            # remove triple backticks and code fences
-                            resp_clean = re.sub(r"^```json\\s*|```$", "", resp_str, flags=re.IGNORECASE).strip()
-                            # find first JSON object in text
-                            m = re.search(r"(\{.*\})", resp_clean, flags=re.DOTALL)
-                            candidate = m.group(1) if m else resp_clean
-                            parsed_json = json.loads(candidate)
-                        except Exception:
-                            parsed_json = None
-                        
-                        if parsed_json and isinstance(parsed_json, dict):
-                            ai_text = parsed_json.get("answer") or parsed_json.get("text") or ""
-                            sources = parsed_json.get("sources") or parsed_json.get("source") or []
-                        else:
-                            # fallback: treat entire model output as answer
-                            ai_text = resp_str
-                            sources = []
-                    
-                    # normalize types
-                    if not isinstance(ai_text, str):
-                        ai_text = str(ai_text)
-                    if not isinstance(sources, (list, tuple)):
-                        sources = [str(sources)] if sources else []
-                    
+                    response = get_response(prompt)
+                    ai_content = extract_text_from_response(response)
+                    sources = extract_sources(response) if isinstance(response, dict) else []
+
                     st.session_state.messages.append({
                         "id": str(uuid.uuid4()),
                         "role": "assistant",
-                        "content": ai_text,
-                        "meta": {"sources": sources}
+                        "content": ai_content,
+                        "meta": {"sources": sources} if sources else {}
                     })
-                    # ---------- end structured call ----------
-                    
                 except Exception as e:
                     st.session_state.messages.append({
                         "id": str(uuid.uuid4()),
                         "role": "assistant",
-                        "content": f"⚠️ Oops! Something went wrong: {str(e)}",
+                        "content": f"⚠️ Oops! Something went wrong while generating the answer: {str(e)}",
                         "meta": {}
                     })
             else:
@@ -1062,9 +1108,13 @@ Do NOT include any extra text outside the JSON.
                     "content": "⚠️ The AI model is currently not configured. Please check the setup!",
                     "meta": {}
                 })
-            
-            st.rerun()
-    
+
+            # Clear the input after appending messages so no one-step lag happens
+            try:
+                st.session_state["user_input"] = ""
+            except Exception:
+                pass
+
     st.markdown('</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1072,7 +1122,7 @@ Do NOT include any extra text outside the JSON.
 st.markdown("""
 <div class="app-footer">
     Built with <span class="footer-emoji">❤️</span> by <strong>TechNova</strong> • HackNPitch 2025<br>
-    <small>Powered by Gemini AI • Regional Knowledge at Your Fingertips</small>
+    <small>Regional Knowledge at Your Fingertips</small>
 </div>
 """, unsafe_allow_html=True)
 
