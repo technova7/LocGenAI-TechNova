@@ -7,6 +7,9 @@ import hashlib
 import uuid
 import json
 import re
+import os
+print("🔍 GEMINI_API_KEY exists:", bool(os.getenv("GEMINI_API_KEY")))
+
 from urllib.parse import urlparse
 from typing import Any
 
@@ -1071,3 +1074,21 @@ st.markdown("""
 })();
 </script>
 """, unsafe_allow_html=True)
+# ═══════════════════════════════════════════════════════════════════════════════
+#  DEBUG PANEL (for testing model backend without terminal access)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+with st.expander("🧩 Debug: Test Model Backend", expanded=False):
+    st.write("Use this only for debugging model responses (not visible in normal use).")
+    test_query = st.text_input("Test query", "famous sweets in kolkata")
+    if st.button("Run diagnostic test"):
+        import traceback, time
+        try:
+            start = time.time()
+            result = get_response(test_query)
+            elapsed = round(time.time() - start, 2)
+            st.success(f"✅ Model call completed in {elapsed} seconds")
+            st.json(result)
+        except Exception as e:
+            st.error("❌ Error while calling model:")
+            st.code(traceback.format_exc())
