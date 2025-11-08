@@ -1,0 +1,52 @@
+[
+  {
+    "q": "how to travel in kolkata",
+    "a": "You can travel using metro, buses, trams, app-based taxis and auto-rickshaws. Metro is the fastest way across the city.",
+    "sources": ["https://kmrc.in/", "https://transport.wb.gov.in/"]
+  },
+  {
+    "q": "best time to visit kolkata",
+    "a": "Winter months, from November to February, are ideal for visiting Kolkata — pleasant weather and many cultural events.",
+    "sources": ["https://wbtourism.gov.in/", "https://kolkatatourism.travel/"]
+  },
+  {
+    "q": "famous food of kolkata",
+    "a": "Roshogolla, Mishti Doi, Kathi Rolls, and Puchka are iconic Kolkata dishes loved by everyone!",
+    "sources": ["https://wbtourism.gov.in/", "https://www.hindustantimes.com/lifestyle/food/"]
+  },
+  {
+    "q": "where is victoria memorial",
+    "a": "Victoria Memorial is located in central Kolkata, near the Maidan area. It’s open daily except Monday.",
+    "sources": ["https://victoriamemorial-cal.org/", "https://wbtourism.gov.in/"]
+  },
+  {
+    "q": "local language of kolkata",
+    "a": "Bengali is the main language, but Hindi and English are also commonly spoken.",
+    "sources": ["https://wb.gov.in/"]
+  },
+  {
+    "q": "howrah bridge",
+    "a": "The Howrah Bridge, officially Rabindra Setu, connects Kolkata and Howrah over the Hooghly River. It’s an engineering marvel.",
+    "sources": ["https://kolkatatourism.travel/howrah-bridge-kolkata", "https://wbtourism.gov.in/"]
+  },
+  {
+    "q": "kolkata festivals",
+    "a": "Durga Puja, Kali Puja, and Saraswati Puja are the biggest festivals celebrated with grandeur.",
+    "sources": ["https://wb.gov.in/", "https://wbtourism.gov.in/"]
+  },
+  {
+    "q": "kolkata weather",
+    "a": "Kolkata has a tropical climate — hot summers (April-June), monsoon rains (July-September), and pleasant winters (Nov-Feb).",
+    "sources": ["https://mausam.imd.gov.in/", "https://www.accuweather.com/en/in/kolkata"]
+  },
+  {
+    "q": "places to visit in kolkata",
+    "a": "Victoria Memorial, Howrah Bridge, Dakshineswar Temple, Indian Museum, and Park Street are top attractions.",
+    "sources": ["https://wbtourism.gov.in/", "https://kolkatatourism.travel/"]
+  },
+  {
+    "q": "famous sweets in kolkata",
+    "a": "Try roshogolla, sandesh, mishti doi, and chomchom — local favorites found at KC Das, Balaram Mullick, and Bhim Chandra Nag.",
+    "sources": ["https://wbtourism.gov.in/"]
+  }
+]
